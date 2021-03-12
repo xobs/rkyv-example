@@ -1,18 +1,7 @@
 pub mod string;
 pub mod vecu8;
-use rkyv::{Archive, Write};
 
-// let mut tokens = heapless::Vec::<heapless::String::<U512>, U16>::new();
-// for _ in 0..12 {
-//     let empty = heapless::String::from("");
-//     tokens.push(empty).unwrap();
-// }
-
-// for s in &tokens {
-//     println!("Token: {}", s);
-// }
-
-#[derive(Archive)]
+#[derive(rkyv::Archive, rkyv::Serialize)]
 struct StringyThing {
     s: string::String<512>,
     vecu8: vecu8::VecU8<heapless::consts::U65>,
@@ -30,11 +19,16 @@ fn main() {
         vecu8,
     };
 
-    let mut writer = rkyv::ArchiveBuffer::new(rkyv::Aligned([0u8; 256]));
+    let mut writer = rkyv::ser::serializers::BufferSerializer::new(rkyv::Aligned([0u8; 256]));
 
     // It works!
     println!("Archiving...");
-    let pos = writer.archive(&my_s).expect("failed to archive test");
+    let pos = {
+        use rkyv::ser::Serializer;
+        writer
+            .serialize_value(&my_s)
+            .expect("failed to archive test")
+    };
     println!("Finalizing...");
     let buf = writer.into_inner();
     println!("Deserializing...");

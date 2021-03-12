@@ -1,7 +1,4 @@
-// use core::pin::Pin;
-// use rkyv::archived_value;
-// use rkyv::Unarchive;
-// use rkyv::Write;
+use rkyv::{ArchiveUnsized, SerializeUnsized};
 
 #[derive(Debug)]
 pub enum Error {
@@ -188,8 +185,7 @@ impl<const N: usize> core::fmt::Debug for String<N> {
 
 #[repr(C)]
 pub struct ArchivedString {
-    ptr: rkyv::RelPtr,
-    len: u32,
+    ptr: rkyv::RelPtr<str>,
 }
 
 impl ArchivedString {
@@ -198,29 +194,14 @@ impl ArchivedString {
         unsafe {
             // The as_ptr() function of RelPtr will get a pointer
             // to its memory.
-            let bytes = core::slice::from_raw_parts(self.ptr.as_ptr(), self.len as usize);
-            core::str::from_utf8_unchecked(bytes)
+            &*self.ptr.as_ptr()
         }
     }
 }
 
 pub struct StringResolver {
     bytes_pos: usize,
-}
-
-// Turn a stream of bytes into an `ArchivedString`.
-impl<const N: usize> rkyv::Resolve<String<N>> for StringResolver {
-    type Archived = ArchivedString;
-
-    fn resolve(self, pos: usize, value: &String<N>) -> Self::Archived {
-        println!("In resolve(pos: {})", pos);
-        Self::Archived {
-            ptr: unsafe {
-                rkyv::RelPtr::new(pos + rkyv::offset_of!(ArchivedString, ptr), self.bytes_pos)
-            },
-            len: value.len() as u32,
-        }
-    }
+    _metadata_resolver: rkyv::MetadataResolver<str>,
 }
 
 /// Turn a `String` into an archived object
@@ -228,20 +209,37 @@ impl<const N: usize> rkyv::Archive for String<N> {
     type Archived = ArchivedString;
     type Resolver = StringResolver;
 
-    fn archive<W: rkyv::Write + ?Sized>(
-        &self,
-        writer: &mut W,
-    ) -> core::result::Result<Self::Resolver, W::Error> {
-        println!("In archive() (pos: {})", writer.pos());
-        let bytes_pos = writer.pos();
-        writer.write(&self.bytes[0..self.len()])?;
-        Ok(Self::Resolver { bytes_pos })
+    fn resolve(&self, pos: usize, resolver: Self::Resolver) -> Self::Archived {
+        println!("In String::Archive::resolve() (pos: {})", pos);
+        Self::Archived {
+            ptr: unsafe {
+                self.as_str().unwrap().resolve_unsized(
+                    pos + rkyv::offset_of!(Self::Archived, ptr),
+                    resolver.bytes_pos,
+                    (),
+                )
+            },
+        }
     }
 }
 
-impl<const N: usize> rkyv::Unarchive<String<N>> for ArchivedString {
-    fn unarchive(&self) -> String<N> {
-        println!("In unarchive()");
-        String::from_str(self.as_str())
+// Turn a stream of bytes into an `ArchivedString`.
+impl<S: rkyv::ser::Serializer + ?Sized, const N: usize> rkyv::Serialize<S> for String<N> {
+    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+        println!("In String::Serialize::serialize()");
+        // This is where we want to write the bytes of our string and return
+        // a resolver that knows where those bytes were written.
+        // We also need to serialize the metadata for our str.
+        Ok(StringResolver {
+            bytes_pos: self.as_str().unwrap().serialize_unsized(serializer)?,
+            _metadata_resolver: self.as_str().unwrap().serialize_metadata(serializer)?,
+        })
     }
 }
+
+// impl<const N: usize> rkyv::Unarchive<String<N>> for ArchivedString {
+//     fn unarchive(&self) -> String<N> {
+//         println!("In unarchive()");
+//         String::from_str(self.as_str())
+//     }
+// }
