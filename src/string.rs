@@ -237,9 +237,10 @@ impl<S: rkyv::ser::Serializer + ?Sized, const N: usize> rkyv::Serialize<S> for S
     }
 }
 
-// impl<const N: usize> rkyv::Unarchive<String<N>> for ArchivedString {
-//     fn unarchive(&self) -> String<N> {
-//         println!("In unarchive()");
-//         String::from_str(self.as_str())
-//     }
-// }
+impl<D: rkyv::de::Deserializer + ?Sized, const N: usize> rkyv::Deserialize<String<N>, D>
+    for ArchivedString
+{
+    fn deserialize(&self, mut _deserializer: &mut D) -> Result<String<N>, D::Error> {
+        Ok(String::from_str(self.as_str()))
+    }
+}
